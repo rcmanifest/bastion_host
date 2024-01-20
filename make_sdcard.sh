@@ -48,16 +48,21 @@ enable_serial_boot_messages()
 		echo "'quiet' is not present in $CMDLINE_FILE."
 	fi
 }
+enable_ssh()
+{
+	sudo touch $1/ssh	
+}
 mount_partition()
 {
 	MNT_DIR=$1
+	MNT_DIR=$(pwd)/"$MNT_DIR"
 	PARTITION=$2
 
-	if [ "$(df --output=target "$MNT_DIR" | tail -1)" = "$MNT_DIR" ] ; then
-
-	#if [ -d "$MNT_DIR" ]; then
+	#There can be several leftover loop mounts
+	while  [ "$(df --output=target "$MNT_DIR" | tail -1)" = "$MNT_DIR" ] ; do
 		sudo umount $MNT_DIR; 
-	fi
+	done
+
 	mkdir -p $MNT_DIR
 	# Get the start offset of the partition
 	#fdisk -l displays the partitions as filename1 filename2 ....
@@ -65,7 +70,7 @@ mount_partition()
 	
 	# Check if offset was found
 	if [ -z "$offset" ]; then
-		echo "Error: Could not find offset for the second partition."
+		echo "Error: Could not find offset for the partition."
 		exit 1
 	fi
 	# Mount the partition
@@ -119,9 +124,49 @@ add_user()
 		echo "User $USER_NAME has been added to the disk image."
 	fi
 }
+enable_gadget() 
+{
+	BOOT_MOUNT_PATH="$1"
 
+	#Configure Boot Config
+	if ! grep -q "^dtoverlay=dwc2" "$BOOT_MOUNT_PATH/config.txt"; then
+		echo "dtoverlay=dwc2" | sudo tee -a  "$BOOT_MOUNT_PATH/config.txt"
+	else
+		echo "dwc2 already exists in config.txt"
+	fi
+
+	#Enable USB Ethernet Gadget in cmdline.txt
+	# Caution: This step involves editing the cmdline.txt which is sensitive
+	CMDLINE="$BOOT_MOUNT_PATH/cmdline.txt"
+	if grep -q "modules-load=dwc2,g_ether" "$CMDLINE"; then
+		echo "Ethernet gadget already enabled in cmdline.txt."
+	else
+		# Insert 'modules-load=dwc2,g_ether' after 'rootwait'
+		sudo sed -i 's/rootwait/rootwait modules-load=dwc2,g_ether g_ether.dev_addr=12:22:33:44:55:66 g_ether.host_addr=16:22:33:44:55:66/' "$CMDLINE"
+	fi
+
+	echo "Ethernet gadget setup is complete."
+}
+set_gadget_ip_address()
+{
+	ROOT_MOUNT_PATH="$1"
+	DHCP_FILE="$ROOT_MOUNT_PATH"/etc/dhcpcd.conf
+
+	#Configure Boot Config
+	if ! grep -q "interface usb0" "$DHCP_FILE" ; then
+		echo "interface usb0" | sudo tee -a  "$DHCP_FILE"
+		echo "static ip_address=10.0.0.1/24" | sudo tee -a  "$DHCP_FILE"
+	else
+		echo "usb0 interface already configured in $DHCP_FILE"
+	fi
+
+	echo "static ip address configuration for ethernet gadget is complete."
+}
 customize_image()
 {
+	BOOT_DIR=boot
+	ROOT_DIR=rootfs
+
 	if [ -f $IMG_FILENAME ]; then
 		rm -v "$IMG_FILENAME"
 	fi
@@ -129,20 +174,25 @@ customize_image()
 	echo "Decompressing image ..."
 	xz --decompress --keep "$IMG_FILENAME".xz
 
-	mount_partition boot 1
-	enable_serial_boot_messages boot
-	sudo umount boot
+	mount_partition "$BOOT_DIR" 1
+	enable_serial_boot_messages "$BOOT_DIR"
+	enable_ssh "$BOOT_DIR"
+	enable_gadget "$BOOT_DIR"
+	sync
+	sudo umount "$BOOT_DIR"
 
-	mount_partition rootfs 2
-	add_user rootfs
-	sudo umount rootfs
+	mount_partition "$ROOT_DIR" 2
+	add_user "$ROOT_DIR"
+	set_gadget_ip_address "$ROOT_DIR"
+	sync
+	sudo umount "$ROOT_DIR"
 }
 
 display_command_line_options()
 {
 	echo "Command line options:"
 	echo -e "\tDEBUG: sets -x"
-	echo -e "\tF: force dd to use block device even if it is large"
+	echo -e "\tFORCE: force dd to use block device even if it is large"
 	echo -e "\tSINGLE: single step"
 }
 parse_command_line_options()
@@ -218,7 +268,6 @@ display_command_line_options
 unset SINGLE	#Set START_SINGLE_STEP to a value where you want to start single stepping
 parse_command_line_options $@
 
-START_SINGLE_STEP=1
 IMG_FILENAME=pi0w_os/2023-12-05-raspios-bullseye-armhf-lite.img
 customize_image
 get_sdcard
@@ -226,12 +275,9 @@ get_sdcard
 sudo dd if="$IMG_FILENAME" of=$device bs=1M status=progress status=progress conv=nocreat,fdatasync
 
 if [ $? -eq 0 ]; then
-	sync
-	sleep 10
 	echo "sdcard flashed successfully!"
 else
 	echo "sdcard flashing FAILED"
 fi
-date
 
 

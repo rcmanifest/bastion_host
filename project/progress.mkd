@@ -1,0 +1,9 @@
+**Project Log**
+
+***January 20th, 2024***
+
+Modified make_sdcard.sh to unmount all loop devices for boot and rootfs.
+Added static ethernet and ip address for usb gadget.  This results in the same device name on the host.
+Create connect.sh that configures the usb-ethernet gadget on the host.
+
+Tested on Ubuntu 20.04.6 LTS

@@ -19,16 +19,7 @@ This guide outlines the process of setting up a Raspberry Pi Zero W as a bastion
 1. **Flash sdcard:**
 <br>\#./make_sdcard.sh
 
-
-
-
-2. **Flash the OS to MicroSD Card:** Use a tool like [balenaEtcher](https://www.balena.io/etcher/) to flash the downloaded image to your MicroSD card.
-
-3. **Enable SSH:** To enable SSH on your Raspberry Pi, place an empty file named `ssh` (without any extension) in the boot partition of the MicroSD card.
-
-4. **Insert MicroSD Card:** Insert the MicroSD card into your Raspberry Pi Zero W.
-
-5. **Power Up:** Connect your Raspberry Pi to power and wait for it to boot.
+2. **Power Up:** Connect your Raspberry Pi to power and wait for it to boot.
 
 ## Network Configuration
 
