@@ -7,6 +7,7 @@ single_step()
 	#Called from trap DEBUG
 	{ set +x; } &> /dev/null
 	if [ "$START_SINGLE_STEP" ]; then
+		echo "Press enter to continue"
 		read
 	fi
 	set -x
@@ -162,11 +163,112 @@ set_gadget_ip_address()
 
 	echo "static ip address configuration for ethernet gadget is complete."
 }
+# Function to check if a mount point is mounted
+check_mount() {
+	
+	if mountpoint -q "$ROOT_DIR"/$1; then
+		echo "rootfs/$1 already mounted"
+	else
+		echo "Mounting $ROOT_DIR/$1"
+		sudo mount --bind /$1 "$ROOT_DIR"/$1
+	fi
+}
+
+# Function to run a command in the chroot environment
+run_in_chroot() {
+    LANG=C sudo chroot "$ROOTFS_DIR" /bin/bash -c "$1"
+}
+configure_access_point() {
+
+	# Directories for mounted partitions
+	ROOTFS_DIR="./rootfs"
+
+	# Install hostapd and dnsmasq
+	run_in_chroot "apt-get update"
+	run_in_chroot "apt-get install -y hostapd dnsmasq"
+
+	# Stop services for configuration (they will run on boot)
+	#run_in_chroot "systemctl stop hostapd"
+	#run_in_chroot "systemctl stop dnsmasq"
+
+	# Configure hostapd
+	cat << EOF > tmp 
+interface=wlan0
+driver=nl80211
+ssid=benchy
+hw_mode=g
+channel=7
+wmm_enabled=0
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+wpa=2
+wpa_passphrase=eryone1!
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+EOF
+	sudo cp tmp "${ROOTFS_DIR}/etc/hostapd/hostapd.conf"
+	rm tmp
+
+	# Tell the system to use our hostapd.conf
+	echo 'DAEMON_CONF="/etc/hostapd/hostapd.conf"' | sudo tee -a "${ROOTFS_DIR}/etc/default/hostapd"
+
+	# Configure dnsmasq
+	cat << EOF > tmp 
+interface=wlan0
+dhcp-range=192.168.150.2,192.168.150.20,255.255.255.0,24h
+EOF
+	sudo cp tmp "${ROOTFS_DIR}/etc/dnsmasq.conf"
+	rm tmp
+
+	# Configure network interfaces
+	cat << EOF > tmp 
+auto wlan0
+iface wlan0 inet static
+	address 192.168.150.1
+	netmask 255.255.255.0
+	network 192.168.150.0
+EOF
+	sudo cp tmp "${ROOTFS_DIR}/etc/network/interfaces.d/wlan0"
+	rm tmp
+
+	# Enable IP forwarding
+	#echo "net.ipv4.ip_forward=1" >> "${ROOTFS_DIR}/etc/sysctl.conf"
+
+	# Set up basic NAT with iptables
+	#run_in_chroot "iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE"
+	#run_in_chroot "iptables-save >
+}
+
+# Function to check if a package is installed
+is_package_installed() {
+    dpkg -s "$1" &> /dev/null
+    return $?
+}
+install_qemu()
+{
+	# List of packages to check
+	packages=("qemu" "qemu-user-static" "binfmt-support")
+	
+	# Check each package
+	for pkg in "${packages[@]}"; do
+		if is_package_installed "$pkg"; then
+			echo "Package '$pkg' is installed."
+		else
+			echo "Package '$pkg' is NOT installed."
+			sudo apt-get install $pkg
+		fi
+	done
+}
+
 customize_image()
 {
+	BOOT_DIR=$(pwd)/boot
+	ROOT_DIR=$(pwd)/rootfs
+
 	BOOT_DIR=boot
 	ROOT_DIR=rootfs
-
 	if [ -f $IMG_FILENAME ]; then
 		rm -v "$IMG_FILENAME"
 	fi
@@ -181,10 +283,32 @@ customize_image()
 	sync
 	sudo umount "$BOOT_DIR"
 
+	#START_SINGLE_STEP=1
 	mount_partition "$ROOT_DIR" 2
 	add_user "$ROOT_DIR"
 	set_gadget_ip_address "$ROOT_DIR"
 	sync
+
+	#!/bin/bash
+
+
+	# Check each mount point
+	ROOT_DIR=$(pwd)/rootfs
+	#check_mount "dev"
+	#check_mount "sys"
+	#check_mount "proc"
+	#check_mount "dev/pts"
+
+	install_qemu
+
+	sudo cp /usr/bin/qemu-arm-static "$ROOT_DIR"/usr/bin/
+	
+	configure_access_point
+
+	#sudo umount "$ROOT_DIR"/dev
+	#sudo umount "$ROOT_DIR"/sys
+	#sudo umount "$ROOT_DIR"/proc
+	#sudo umount "$ROOT_DIR"/dev/pts
 	sudo umount "$ROOT_DIR"
 }
 
