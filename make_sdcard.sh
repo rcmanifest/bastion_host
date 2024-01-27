@@ -82,7 +82,7 @@ add_user()
 	USER_NAME="bastion"
 	USER_ID="2000"
 	GROUP_ID="$USER_ID" # Typically the same as USER_ID for a new user
-	PASSWORD_HASH='$6$xnoIzbJMjxXxBqLg$f5FStd1tyRXesyfiTXCBrgeQUAyMc7Q7QRwKDGCHFLF0VsBicRo8mWLzRP15xjD.LM0hOX0ODfakFPlUL9WiG.' # Password hash
+	PASSWORD_HASH="" #$6$xnoIzbJMjxXxBqLg$f5FStd1tyRXesyfiTXCBrgeQUAyMc7Q7QRwKDGCHFLF0VsBicRo8mWLzRP15xjD.LM0hOX0ODfakFPlUL9WiG.' # Password hash
 	HOME_DIR="/" #/home/$USER_NAME"
 	SHELL="/bin/bash"
 
@@ -304,6 +304,7 @@ customize_image()
 	sudo cp /usr/bin/qemu-arm-static "$ROOT_DIR"/usr/bin/
 	
 	configure_access_point
+	run_in_chroot "sudo passwd -e bastion" #Force user to enter new password on first login
 
 	#sudo umount "$ROOT_DIR"/dev
 	#sudo umount "$ROOT_DIR"/sys

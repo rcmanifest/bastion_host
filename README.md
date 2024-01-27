@@ -14,10 +14,34 @@ This guide outlines the process of setting up a Raspberry Pi Zero W as a bastion
 - MicroSD card (8GB or larger)
 - Access to a computer for initial setup
 
+## Git repo
+
+- git clone git@github.com:rcmanifest/bastion_host.git
+- cd bastion_host
+- git submodule init
+- git submodule clone
+
 ## Raspberry Pi OS Setup
 
 1. **Flash sdcard:**
-<br>\#./make_sdcard.sh
+
+    The make_sdcard.sh script decompresses the os image then mounts the boot partition.
+    Changes are made to the boot partition such as enabling ssh, boot messages over serial, and the ethernet gadget.
+    
+    The root partition is then mounted and bastion user and password set, and ethernet gadget address set.
+
+    The root partition is set as a chroot and hostapd installed.
+
+  * \# ./make_sdcard.sh
+  * Insert sdcard into your rpi and boot.
+  * Login as bastion.  You should be prompted to set a password on login.  Don't be lazy, record it in your password manager.
+  * 
+
+
+
+
+
+
 
 2. **Power Up:** Connect your Raspberry Pi to power and wait for it to boot.
 
