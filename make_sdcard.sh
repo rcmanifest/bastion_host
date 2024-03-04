@@ -149,8 +149,69 @@ enable_gadget()
 
 	echo "Ethernet gadget setup is complete."
 }
-configure_access_point() 
+set_ssh_ports() 
 {
+	ROOT_MOUNT_PATH="$1"
+
+	# Path to the sshd_config file within the mounted image
+	SSHD_CONFIG="$ROOT_MOUNT_PATH/etc/ssh/sshd_config"
+
+	# Check if the sshd_config file exists
+	if [ -f "$SSHD_CONFIG" ]; then
+		# Backup the original sshd_config file
+		sudo cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak"
+
+		cp $SSHD_CONFIG tmp
+		# Remove existing 'Port' directives to avoid conflicts
+		sed -i '/^Port /d' tmp
+
+		# Add new 'Port' directives for ports 2222 and 4444
+		echo "Port 2222" >> tmp
+		echo "Port 4444" >> tmp
+		sudo cp tmp $SSHD_CONFIG
+		echo "sshd_config has been updated to listen on ports 2222 and 4444."
+	else
+		echo "sshd_config file does not exist at the specified path: $SSHD_CONFIG"
+		exit 1
+	fi
+
+}
+
+set_gadget_ip_address()
+{
+	ROOT_MOUNT_PATH="$1"
+	DHCP_FILE="$ROOT_MOUNT_PATH"/etc/dhcpcd.conf
+
+	#Configure Boot Config
+	if ! grep -q "interface usb0" "$DHCP_FILE" ; then
+		echo "interface usb0" | sudo tee -a  "$DHCP_FILE"
+		echo "static ip_address=10.0.0.1/24" | sudo tee -a  "$DHCP_FILE"
+	else
+		echo "usb0 interface already configured in $DHCP_FILE"
+	fi
+
+	echo "static ip address configuration for ethernet gadget is complete."
+}
+# Function to check if a mount point is mounted
+check_mount() {
+	
+	if mountpoint -q "$ROOT_DIR"/$1; then
+		echo "rootfs/$1 already mounted"
+	else
+		echo "Mounting $ROOT_DIR/$1"
+		sudo mount --bind /$1 "$ROOT_DIR"/$1
+	fi
+}
+
+# Function to run a command in the chroot environment
+run_in_chroot() {
+    LANG=C sudo chroot "$ROOT_DIR" /bin/bash -c "$1"
+}
+configure_access_point() {
+
+	# Directories for mounted partitions
+	ROOTFS_DIR="./rootfs"
+
 	# Install hostapd and dnsmasq
 	run_in_chroot "apt-get update"
 	run_in_chroot "apt-get install -y hostapd dnsmasq"
