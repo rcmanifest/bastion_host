@@ -1,5 +1,6 @@
 #!/bin/bash
 #This script creates a an sdcard for pi0w.
+set -u
 
 #Functions
 single_step() 
@@ -148,41 +149,8 @@ enable_gadget()
 
 	echo "Ethernet gadget setup is complete."
 }
-set_gadget_ip_address()
+configure_access_point() 
 {
-	ROOT_MOUNT_PATH="$1"
-	DHCP_FILE="$ROOT_MOUNT_PATH"/etc/dhcpcd.conf
-
-	#Configure Boot Config
-	if ! grep -q "interface usb0" "$DHCP_FILE" ; then
-		echo "interface usb0" | sudo tee -a  "$DHCP_FILE"
-		echo "static ip_address=10.0.0.1/24" | sudo tee -a  "$DHCP_FILE"
-	else
-		echo "usb0 interface already configured in $DHCP_FILE"
-	fi
-
-	echo "static ip address configuration for ethernet gadget is complete."
-}
-# Function to check if a mount point is mounted
-check_mount() {
-	
-	if mountpoint -q "$ROOT_DIR"/$1; then
-		echo "rootfs/$1 already mounted"
-	else
-		echo "Mounting $ROOT_DIR/$1"
-		sudo mount --bind /$1 "$ROOT_DIR"/$1
-	fi
-}
-
-# Function to run a command in the chroot environment
-run_in_chroot() {
-    LANG=C sudo chroot "$ROOTFS_DIR" /bin/bash -c "$1"
-}
-configure_access_point() {
-
-	# Directories for mounted partitions
-	ROOTFS_DIR="./rootfs"
-
 	# Install hostapd and dnsmasq
 	run_in_chroot "apt-get update"
 	run_in_chroot "apt-get install -y hostapd dnsmasq"
@@ -192,53 +160,53 @@ configure_access_point() {
 	#run_in_chroot "systemctl stop dnsmasq"
 
 	# Configure hostapd
-	cat << EOF > tmp 
-interface=wlan0
-driver=nl80211
-ssid=benchy
-hw_mode=g
-channel=7
-wmm_enabled=0
-macaddr_acl=0
-auth_algs=1
-ignore_broadcast_ssid=0
-wpa=2
-wpa_passphrase=eryone1!
-wpa_key_mgmt=WPA-PSK
-wpa_pairwise=TKIP
-rsn_pairwise=CCMP
-EOF
-	sudo cp tmp "${ROOTFS_DIR}/etc/hostapd/hostapd.conf"
+	cat <<-EOF > tmp 
+		interface=wlan0
+		driver=nl80211
+		ssid=benchy
+		hw_mode=g
+		channel=7
+		wmm_enabled=0
+		macaddr_acl=0
+		auth_algs=1
+		ignore_broadcast_ssid=0
+		wpa=2
+		wpa_passphrase=eryone1!
+		wpa_key_mgmt=WPA-PSK
+		wpa_pairwise=TKIP
+		rsn_pairwise=CCMP
+	EOF
+	if [ -f "${ROOT_DIR}/etc/hostapd/hostapd.conf" ]; then
+		sudo cp "${ROOT_DIR}/etc/hostapd/hostapd.conf" "${ROOT_DIR}/etc/hostapd/hostapd.conf.bak"
+	fi
+	sudo cp tmp "${ROOT_DIR}/etc/hostapd/hostapd.conf"
 	rm tmp
 
 	# Tell the system to use our hostapd.conf
-	echo 'DAEMON_CONF="/etc/hostapd/hostapd.conf"' | sudo tee -a "${ROOTFS_DIR}/etc/default/hostapd"
+	echo 'DAEMON_CONF="/etc/hostapd/hostapd.conf"' | sudo tee -a "${ROOT_DIR}/etc/default/hostapd"
 
 	# Configure dnsmasq
-	cat << EOF > tmp 
-interface=wlan0
-dhcp-range=192.168.150.2,192.168.150.20,255.255.255.0,24h
-EOF
-	sudo cp tmp "${ROOTFS_DIR}/etc/dnsmasq.conf"
+	cat <<-EOF > tmp 
+		### wlan0 ###
+		interface=wlan0
+		dhcp-range=192.168.150.2,192.168.150.20,255.255.255.0,24h
+	EOF
+	
+	sudo cp "${ROOT_DIR}/etc/dnsmasq.conf" "${ROOT_DIR}/etc/dnsmasq.conf.bak"
+	sudo cp tmp "${ROOT_DIR}/etc/dnsmasq.conf"
 	rm tmp
 
 	# Configure network interfaces
-	cat << EOF > tmp 
+	cat <<EOF > tmp 
 auto wlan0
 iface wlan0 inet static
 	address 192.168.150.1
 	netmask 255.255.255.0
 	network 192.168.150.0
 EOF
-	sudo cp tmp "${ROOTFS_DIR}/etc/network/interfaces.d/wlan0"
+	sudo cp tmp "${ROOT_DIR}/etc/network/interfaces.d/wlan0"
 	rm tmp
 
-	# Enable IP forwarding
-	#echo "net.ipv4.ip_forward=1" >> "${ROOTFS_DIR}/etc/sysctl.conf"
-
-	# Set up basic NAT with iptables
-	#run_in_chroot "iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE"
-	#run_in_chroot "iptables-save >
 }
 
 # Function to check if a package is installed
@@ -261,14 +229,175 @@ install_qemu()
 		fi
 	done
 }
+set_interface_names()
+{
+	echo "plug in the INTERNAL interface and enter the mac address:"
+#	read MAC_ADDR_INT
+	MAC_ADDR_INT=20:7b:d2:ac:ec:06 #debug remove
 
+	echo "plug in the EXTERNAL interface and enter the mac address:"
+	#read MAC_ADDR_EXT
+	MAC_ADDR_EXT=20:7b:d2:ac:69:c8  #debug remove
+
+	cat << EOF > tmp 
+SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="$MAC_ADDR_EXT", NAME="$EXTERNAL_IFACE"
+SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="$MAC_ADDR_INT", NAME="$INTERNAL_IFACE"
+EOF
+	sudo cp tmp "${ROOT_DIR}/etc/udev/rules.d/10-rename-network.rules"
+	rm tmp
+
+}
+configure_usb_ethernet_interface()
+{
+	# Variables for network interfaces
+	cat <<-EOF > tmp
+	[Unit]
+	Description=Run my script at first boot
+	After=network.target
+	
+	[Service]
+	Type=oneshot
+	ExecStart=/runonce/iptables.sh
+	ExecStartPost=/bin/systemctl disable firstboot.service
+	
+	[Install]
+	WantedBy=multi-user.target
+	EOF
+
+	sudo cp tmp "${ROOT_DIR}/etc/systemd/system/firstboot.service"
+	rm tmp
+
+	run_in_chroot "systemctl enable firstboot.service"
+
+	#Create iptables script
+	cat <<-EOF > tmp
+	#!/bin/bash
+	
+	# Flush existing rules
+	iptables -F
+	iptables -t nat -F
+	iptables -t mangle -F
+	iptables -X
+	
+	# Set default policies
+	iptables -P INPUT DROP
+	iptables -P FORWARD DROP
+	iptables -P OUTPUT ACCEPT
+	
+	# Allow all loopback traffic
+	iptables -A INPUT -i lo -j ACCEPT
+	iptables -A OUTPUT -o lo -j ACCEPT
+	
+	#Allow connections on wlan0
+	iptables -A INPUT -i wlan0 -j ACCEPT
+	
+	# Allow established and related connections
+	iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+	iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+	
+	# Allow all outgoing connections from the internal network
+	iptables -A FORWARD -i $INTERNAL_IFACE -o $EXTERNAL_IFACE -j ACCEPT
+	
+	# Enable NAT for the internal network
+	iptables -t nat -A POSTROUTING -o $EXTERNAL_IFACE -j MASQUERADE
+
+	# Allow DHCP on eth_int
+	iptables -A INPUT -i $INTERNAL_IFACE -p udp --dport 67:68 --sport 67:68 -j ACCEPT
+
+	# Allow SSH access on the external interface (optional, remove if not needed)
+	iptables -A INPUT -i $EXTERNAL_IFACE -p tcp --dport 2222 -j ACCEPT
+	iptables -A INPUT -i wlan0 -p tcp --dport 4444 -j ACCEPT
+	
+	
+
+	# Drop invalid packets
+	iptables -A INPUT -m state --state INVALID -j DROP
+	iptables -A FORWARD -m state --state INVALID -j DROP
+	
+	# Save the iptables rules (Debian/Ubuntu)
+	iptables-save > /etc/iptables/rules.v4
+	
+	EOF
+
+	sudo mkdir "${ROOT_DIR}/runonce"
+	sudo cp tmp "${ROOT_DIR}/runonce/iptables.sh"
+	sudo chmod +x "${ROOT_DIR}/runonce/iptables.sh"
+	rm tmp
+
+	# Make IP forwarding and iptables rules persistent
+	echo "Making IP forwarding and iptables rules persistent..."
+	run_in_chroot "echo net.ipv4.ip_forward=1 | sudo tee -a /etc/sysctl.conf"
+
+	echo "Automating installation of ip-tables-persistent by using debconf"
+	run_in_chroot "apt-get install -y debconf"
+	run_in_chroot "echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections"
+	run_in_chroot "echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections"
+
+	run_in_chroot "apt-get install -y iptables-persistent"
+
+}
+##########################3
+configure_internal_interface()
+{
+	# Define static IP configuration for $INTERNAL_IFACE
+	DESIRED_IP="192.168.1.1"
+	NETMASK="255.255.255.0"
+	BROADCAST="192.168.1.255"
+
+	echo "INTERNAL_IFACE=$INTERNAL_IFACE"
+
+	# Configure dnsmasq
+	#cat <<EOF > tmp
+	cat <<-EOF > tmp
+		# Set the interface for dnsmasq to listen on
+		interface=$INTERNAL_IFACE
+
+		# Specify the network range and lease time
+		dhcp-range=192.168.1.10,192.168.1.100,255.255.255.0,24h
+
+		# Set the default gateway
+		dhcp-option=option:router,$DESIRED_IP
+
+		# Set the DNS server (itself)
+		dhcp-option=option:dns-server,$DESIRED_IP
+
+		# Enable DHCP for IPv4
+		dhcp-authoritative
+
+		# Specify the broadcast address
+		dhcp-option=28,$BROADCAST
+	EOF
+	cat tmp | sudo tee -a "$ROOT_DIR/etc/dnsmasq.conf"
+	#sudo cp tmp "$ROOT_DIR"/etc/dnsmasq_eth_int.conf
+	rm tmp
+
+	# Assign static IP to $INTERNAL_IFACE
+	# Check if the interface configuration already exists
+	if grep -q "^iface $INTERNAL_IFACE inet" "$ROOT_DIR"/etc/network/interfaces; then
+		echo "Interface $INTERNAL_IFACE configuration exists."
+		echo "Please consider editing $ROOT_DIR/etc/network/interfaces manually to adjust the configuration."
+		exit 1
+	else
+		# Add the new interface configuration
+		echo -e "\n# Configuration for $INTERNAL_IFACE" | sudo tee -a "$ROOT_DIR"/etc/network/interfaces
+		echo "auto $INTERNAL_IFACE" | sudo tee -a "$ROOT_DIR"/etc/network/interfaces
+		echo "iface $INTERNAL_IFACE inet static" | sudo tee -a "$ROOT_DIR"/etc/network/interfaces
+		echo "    address $DESIRED_IP" | sudo tee -a "$ROOT_DIR"/etc/network/interfaces
+		echo "    netmask $NETMASK" | sudo tee -a "$ROOT_DIR"/etc/network/interfaces
+		#echo "    dns-nameservers $DNS_SERVERS" | sudo tee -a "$ROOT_DIR"/etc/network/interfaces
+		echo "Interface $INTERNAL_IFACE configured with static IP $DESIRED_IP."
+	fi
+}
+
+
+###################################
 customize_image()
 {
-	BOOT_DIR=$(pwd)/boot
-	ROOT_DIR=$(pwd)/rootfs
-
 	BOOT_DIR=boot
 	ROOT_DIR=rootfs
+	EXTERNAL_IFACE="eth_ext"
+	INTERNAL_IFACE="eth_int"
+
 	if [ -f $IMG_FILENAME ]; then
 		rm -v "$IMG_FILENAME"
 	fi
@@ -277,20 +406,28 @@ customize_image()
 	xz --decompress --keep "$IMG_FILENAME".xz
 
 	mount_partition "$BOOT_DIR" 1
+
+	echo "Enabling serial boot messages on $BOOT_DIR" 
 	enable_serial_boot_messages "$BOOT_DIR"
+	
+	echo "Enabling ssh on $BOOT_DIR" 
 	enable_ssh "$BOOT_DIR"
+
+	echo "Enabling usb gadget on $BOOT_DIR" 
 	enable_gadget "$BOOT_DIR"
 	sync
 	sudo umount "$BOOT_DIR"
 
-	#START_SINGLE_STEP=1
 	mount_partition "$ROOT_DIR" 2
+
+	echo "Adding user to $ROOT_DIR"
 	add_user "$ROOT_DIR"
+
+	echo "Setting gadget ip address in dhcpcd.conf"
 	set_gadget_ip_address "$ROOT_DIR"
-	sync
 
-	#!/bin/bash
-
+	echo "Setting ssh ports in sshd_config"
+	set_ssh_ports "$ROOT_DIR"
 
 	# Check each mount point
 	ROOT_DIR=$(pwd)/rootfs
@@ -299,12 +436,25 @@ customize_image()
 	#check_mount "proc"
 	#check_mount "dev/pts"
 
+	echo "Installing qemu on host system in order to run chroot as arm"
 	install_qemu
 
 	sudo cp /usr/bin/qemu-arm-static "$ROOT_DIR"/usr/bin/
+
+	echo "Generating udev rules for ethernet interfaces"
+	set_interface_names
 	
+	echo "Creating iptables script, runonce service, and installing iptables"
+	configure_usb_ethernet_interface
+
+	echo "installing hostapd and dnsmasq.  Configuring wlan0 dnsmasq and ip address"
 	configure_access_point
-	run_in_chroot "sudo passwd -e bastion" #Force user to enter new password on first login
+	
+	echo "configure dnsmasq_eth_int. Set eth_int static ip"
+	configure_internal_interface
+
+	echo "Force user to enter new password on first login"
+	run_in_chroot "sudo passwd -e bastion" 
 
 	#sudo umount "$ROOT_DIR"/dev
 	#sudo umount "$ROOT_DIR"/sys
@@ -324,7 +474,7 @@ parse_command_line_options()
 {
 	# Loop through each command line argument
 	unset DEBUG
-	unset FORCE
+	FORCE=0
 	for arg in "$@"
 	do
 		if [ "$arg" = "SINGLE" ]; then
@@ -362,7 +512,7 @@ get_sdcard()
 		disk_size=$((disk_size/1024/1024))
 		echo "Disk size is $disk_size MB"
 
-		if ! [ "$FORCE" ] ; then
+		if ! [ $FORCE -eq 1 ] ; then
 			if [ $disk_size -gt 65000  ]; then
 				echo "This disk is larger than a typical sd card"
 				echo "You don't want to dd to your hard drive!"
@@ -385,6 +535,8 @@ get_sdcard()
 #Script execution starts here
 set -o functrace	#enables single stepping inside functions
 set -e
+
+cscope -b -R *.sh
 
 TESTING=false
 unset START_SINGLE_STEP
