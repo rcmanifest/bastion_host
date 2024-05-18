@@ -3,6 +3,16 @@
 set -u
 
 #Functions
+get_response()
+{
+	#Returns 0 on success, ie. user entered y or Y
+	echo -n $1
+	read -p " (y or Y)" user_input
+	if [[ $user_input == "y" || $user_input == "Y" ]]; then
+		return 0;
+	fi
+	return 1
+}
 single_step() 
 {
 	#Called from trap DEBUG
@@ -165,11 +175,11 @@ set_ssh_ports()
 		# Remove existing 'Port' directives to avoid conflicts
 		sed -i '/^Port /d' tmp
 
-		# Add new 'Port' directives for ports 2222 and 4444
-		echo "Port 2222" >> tmp
+		# Add new 'Port' directives for ports 3333 and 4444
+		echo "Port 3333" >> tmp
 		echo "Port 4444" >> tmp
 		sudo cp tmp $SSHD_CONFIG
-		echo "sshd_config has been updated to listen on ports 2222 and 4444."
+		echo "sshd_config has been updated to listen on ports 3333 and 4444."
 	else
 		echo "sshd_config file does not exist at the specified path: $SSHD_CONFIG"
 		exit 1
@@ -366,7 +376,7 @@ configure_usb_ethernet_interface()
 	iptables -A INPUT -i $INTERNAL_IFACE -p udp --dport 67:68 --sport 67:68 -j ACCEPT
 
 	# Allow SSH access on the external interface (optional, remove if not needed)
-	iptables -A INPUT -i $EXTERNAL_IFACE -p tcp --dport 2222 -j ACCEPT
+	iptables -A INPUT -i $EXTERNAL_IFACE -p tcp --dport 3333 -j ACCEPT
 	iptables -A INPUT -i wlan0 -p tcp --dport 4444 -j ACCEPT
 	
 	
@@ -563,24 +573,33 @@ get_sdcard()
 		echo "Please insert the sdcard to be flashed"
 		wait_for_enter
 		lsblk
-		echo "Enter the full path of the sdcard device (eg. /dev/sxx)"
-		read device
-		if ! echo "$device" | grep -q "/dev/"  ; then
-			echo "the full path must contain /dev/"
-			exit 1
-		fi
-		disk_size=`lsblk -b --output SIZE -n -d $device`
-		disk_size=$((disk_size/1024/1024))
-		echo "Disk size is $disk_size MB"
 
-		if ! [ $FORCE -eq 1 ] ; then
-			if [ $disk_size -gt 65000  ]; then
-				echo "This disk is larger than a typical sd card"
-				echo "You don't want to dd to your hard drive!"
-				echo "Please run again with FORCE"
-				exit 2
+		while true; do
+			echo "Enter the full path of the sdcard device (eg. /dev/sxx)"
+			read device
+			if ! echo "$device" | grep -q "/dev/"  ; then
+				echo "the full path must contain /dev/"
+				continue
 			fi
-		fi
+			disk_size=`lsblk -b --output SIZE -n -d $device`
+			disk_size=$((disk_size/1024/1024))
+			echo "Disk size is $disk_size MB"
+
+			if ! [ $FORCE -eq 1 ] ; then
+				#if [ $disk_size -gt 65000  ]; then
+				if [ $disk_size -gt 5000  ]; then
+					echo "This disk is larger than a typical sd card"
+					echo "You don't want to dd to your hard drive!"
+					if ! get_response "Continue anyway?" ; then
+						echo "You can run again with FORCE"
+						continue
+					else
+						echo "Continuing with $device"
+						break
+					fi
+				fi
+			fi
+		done
 		#Unmount all partitions
 		set +e
 		for i in {1..10}
@@ -592,8 +611,27 @@ get_sdcard()
 		echo "---------- In test mode  ----------"
 	fi
 }
+DEBUG_FN()
+{
+
+	get_sdcard
+	exit 2
+
+
+	while true; do
+		read -p "enter number " num
+		if [[ num != 10 ]]; then
+			echo "wrong number. "
+			if  ! get_response "Continue ?" ; then
+				exit 1
+			fi
+		fi
+	done
+	exit 2
+}
 ###################
 #Script execution starts here
+
 set -o functrace	#enables single stepping inside functions
 set -e
 
