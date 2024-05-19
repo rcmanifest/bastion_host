@@ -1,6 +1,7 @@
 #!/bin/bash
 #This script creates a an sdcard for pi0w.
-set -u
+
+set -u	#error on unset variables
 
 #Functions
 get_response()
@@ -161,27 +162,27 @@ enable_gadget()
 }
 set_ssh_ports() 
 {
-	ROOT_MOUNT_PATH="$1"
+	local root_dir="$1"
 
 	# Path to the sshd_config file within the mounted image
-	SSHD_CONFIG="$ROOT_MOUNT_PATH/etc/ssh/sshd_config"
+	local sshd_config_file="$root_dir/etc/ssh/sshd_config"
 
 	# Check if the sshd_config file exists
-	if [ -f "$SSHD_CONFIG" ]; then
+	if [ -f "$sshd_config_file" ]; then
 		# Backup the original sshd_config file
-		sudo cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak"
+		sudo cp "$sshd_config_file" "${sshd_config_file}.bak"
 
-		cp $SSHD_CONFIG tmp
+		cp $sshd_config_file tmp
 		# Remove existing 'Port' directives to avoid conflicts
 		sed -i '/^Port /d' tmp
 
 		# Add new 'Port' directives for ports 3333 and 4444
 		echo "Port 3333" >> tmp
 		echo "Port 4444" >> tmp
-		sudo cp tmp $SSHD_CONFIG
+		sudo cp tmp $sshd_config_file
 		echo "sshd_config has been updated to listen on ports 3333 and 4444."
 	else
-		echo "sshd_config file does not exist at the specified path: $SSHD_CONFIG"
+		echo "sshd_config file does not exist at the specified path: $sshd_config_file"
 		exit 1
 	fi
 
@@ -303,12 +304,12 @@ install_qemu()
 set_interface_names()
 {
 	echo "plug in the INTERNAL interface and enter the mac address:"
-#	read MAC_ADDR_INT
-	MAC_ADDR_INT=20:7b:d2:ac:ec:06 #debug remove
+	read MAC_ADDR_INT
+	#MAC_ADDR_INT=20:7b:d2:ac:ec:06 #debug remove
 
 	echo "plug in the EXTERNAL interface and enter the mac address:"
-	#read MAC_ADDR_EXT
-	MAC_ADDR_EXT=20:7b:d2:ac:69:c8  #debug remove
+	read MAC_ADDR_EXT
+	#MAC_ADDR_EXT=20:7b:d2:ac:69:c8  #debug remove
 
 	cat << EOF > tmp 
 SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="$MAC_ADDR_EXT", NAME="$EXTERNAL_IFACE"
@@ -462,7 +463,7 @@ configure_internal_interface()
 
 
 ###################################
-customize_image()
+create_custom_image()
 {
 	BOOT_DIR=boot
 	ROOT_DIR=rootfs
@@ -645,7 +646,7 @@ unset SINGLE	#Set START_SINGLE_STEP to a value where you want to start single st
 parse_command_line_options $@
 
 IMG_FILENAME=pi0w_os/2023-12-05-raspios-bullseye-armhf-lite.img
-customize_image
+create_custom_image
 get_sdcard
 
 sudo dd if="$IMG_FILENAME" of=$device bs=1M status=progress status=progress conv=nocreat,fdatasync
