@@ -1,13 +1,9 @@
-
-
-
-
 # Raspberry Pi Zero W Bastion Host Setup
 
 This guide outlines the process of setting up a Raspberry Pi Zero W as a bastion host with two USB-to-Ethernet interfaces.  
-# Using github
-To commit:  type gitasmanifest  \#gitasmanifest='alias git="git -c user.name=\"rc\" -c user.email=\"rcmanifest@gmail.com\""'  
-You will be prompted for the ssh key password.  Check your password manager.
+## Development Processes
+[Dev Process](https://github.com/rcmanifest/bastion_host/blob/main/project/dev_process.md)
+
 
 ## Prerequisites
 
@@ -105,3 +101,4 @@ You will be prompted for the ssh key password.  Check your password manager.
 ## Conclusion
 
 Your Raspberry Pi Zero W is now configured as a bastion host. Ensure regular updates and monitor logs for any unauthorized access attempts.
+
