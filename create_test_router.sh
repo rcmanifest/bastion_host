@@ -347,9 +347,11 @@ configure_usb_ethernet_interface()
 	
 	# Flush existing rules
 	iptables -F
+	iptables -t filter -F	#does same as iptables -F 
 	iptables -t nat -F
 	iptables -t mangle -F
-	iptables -X
+	iptables -t raw -F
+	iptables -X		#Flushes all custom chains
 	
 	# Set default policies
 	iptables -P INPUT DROP

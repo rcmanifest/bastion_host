@@ -1,19 +1,8 @@
 #!/bin/bash
 #This script creates a an sdcard for pi0w.
-
-set -u	#error on unset variables
+set -u
 
 #Functions
-get_response()
-{
-	#Returns 0 on success, ie. user entered y or Y
-	echo -n $1
-	read -p " (y or Y)" user_input
-	if [[ $user_input == "y" || $user_input == "Y" ]]; then
-		return 0;
-	fi
-	return 1
-}
 single_step() 
 {
 	#Called from trap DEBUG
@@ -162,46 +151,30 @@ enable_gadget()
 }
 set_ssh_ports() 
 {
-	local root_dir="$1"
+	ROOT_MOUNT_PATH="$1"
 
 	# Path to the sshd_config file within the mounted image
-	local sshd_config_file="$root_dir/etc/ssh/sshd_config"
+	SSHD_CONFIG="$ROOT_MOUNT_PATH/etc/ssh/sshd_config"
 
 	# Check if the sshd_config file exists
-	if [ -f "$sshd_config_file" ]; then
+	if [ -f "$SSHD_CONFIG" ]; then
 		# Backup the original sshd_config file
-		sudo cp "$sshd_config_file" "${sshd_config_file}.bak"
+		sudo cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak"
 
-		cp $sshd_config_file tmp
+		cp $SSHD_CONFIG tmp
 		# Remove existing 'Port' directives to avoid conflicts
 		sed -i '/^Port /d' tmp
 
-		# Add new 'Port' directives for ports 3333 and 4444
-		echo "Port 3333" >> tmp
+		# Add new 'Port' directives for ports 2222 and 4444
+		echo "Port 2222" >> tmp
 		echo "Port 4444" >> tmp
-		sudo cp tmp $sshd_config_file
-		echo "sshd_config has been updated to listen on ports 3333 and 4444."
+		sudo cp tmp $SSHD_CONFIG
+		echo "sshd_config has been updated to listen on ports 2222 and 4444."
 	else
-		echo "sshd_config file does not exist at the specified path: $sshd_config_file"
+		echo "sshd_config file does not exist at the specified path: $SSHD_CONFIG"
 		exit 1
 	fi
 
-}
-
-set_gadget_ip_address()
-{
-	ROOT_MOUNT_PATH="$1"
-	DHCP_FILE="$ROOT_MOUNT_PATH"/etc/dhcpcd.conf
-
-	#Configure Boot Config
-	if ! grep -q "interface usb0" "$DHCP_FILE" ; then
-		echo "interface usb0" | sudo tee -a  "$DHCP_FILE"
-		echo "static ip_address=10.0.0.1/24" | sudo tee -a  "$DHCP_FILE"
-	else
-		echo "usb0 interface already configured in $DHCP_FILE"
-	fi
-
-	echo "static ip address configuration for ethernet gadget is complete."
 }
 # Function to check if a mount point is mounted
 check_mount() {
@@ -215,17 +188,15 @@ check_mount() {
 }
 
 # Function to run a command in the chroot environment
-run_in_chroot() {
+run_in_chroot() 
+{
     LANG=C sudo chroot "$ROOT_DIR" /bin/bash -c "$1"
 }
-configure_access_point() {
-
-	# Directories for mounted partitions
-	ROOTFS_DIR="./rootfs"
-
+configure_access_point() 
+{
 	# Install hostapd and dnsmasq
 	run_in_chroot "apt-get update"
-	run_in_chroot "apt-get install -y hostapd " #dnsmasq"
+	run_in_chroot "apt-get install -y hostapd dnsmasq"
 
 	# Stop services for configuration (they will run on boot)
 	#run_in_chroot "systemctl stop hostapd"
@@ -235,7 +206,7 @@ configure_access_point() {
 	cat <<-EOF > tmp 
 		interface=wlan0
 		driver=nl80211
-		ssid=NETWORK_777
+		ssid=benchy
 		hw_mode=g
 		channel=7
 		wmm_enabled=0
@@ -243,7 +214,7 @@ configure_access_point() {
 		auth_algs=1
 		ignore_broadcast_ssid=0
 		wpa=2
-		wpa_passphrase=3lonMusk1#
+		wpa_passphrase=eryone1!
 		wpa_key_mgmt=WPA-PSK
 		wpa_pairwise=TKIP
 		rsn_pairwise=CCMP
@@ -304,12 +275,12 @@ install_qemu()
 set_interface_names()
 {
 	echo "plug in the INTERNAL interface and enter the mac address:"
-	read MAC_ADDR_INT
-	#MAC_ADDR_INT=20:7b:d2:ac:ec:06 #debug remove
+#	read MAC_ADDR_INT
+	MAC_ADDR_INT=20:7b:d2:ac:ec:06 #debug remove
 
 	echo "plug in the EXTERNAL interface and enter the mac address:"
-	read MAC_ADDR_EXT
-	#MAC_ADDR_EXT=20:7b:d2:ac:69:c8  #debug remove
+	#read MAC_ADDR_EXT
+	MAC_ADDR_EXT=20:7b:d2:ac:69:c8  #debug remove
 
 	cat << EOF > tmp 
 SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="$MAC_ADDR_EXT", NAME="$EXTERNAL_IFACE"
@@ -329,7 +300,7 @@ configure_usb_ethernet_interface()
 	
 	[Service]
 	Type=oneshot
-	ExecStart=ls #/runonce/iptables.sh
+	ExecStart=/runonce/iptables.sh
 	ExecStartPost=/bin/systemctl disable firstboot.service
 	
 	[Install]
@@ -377,7 +348,7 @@ configure_usb_ethernet_interface()
 	iptables -A INPUT -i $INTERNAL_IFACE -p udp --dport 67:68 --sport 67:68 -j ACCEPT
 
 	# Allow SSH access on the external interface (optional, remove if not needed)
-	iptables -A INPUT -i $EXTERNAL_IFACE -p tcp --dport 3333 -j ACCEPT
+	iptables -A INPUT -i $EXTERNAL_IFACE -p tcp --dport 2222 -j ACCEPT
 	iptables -A INPUT -i wlan0 -p tcp --dport 4444 -j ACCEPT
 	
 	
@@ -463,42 +434,9 @@ configure_internal_interface()
 
 
 ###################################
-create_custom_image()
+customize_image()
 {
-	BOOT_DIR=boot
-	ROOT_DIR=rootfs
-	EXTERNAL_IFACE="eth_ext"
-	INTERNAL_IFACE="eth_int"
 
-	if [ -f $IMG_FILENAME ]; then
-		rm -v "$IMG_FILENAME"
-	fi
-	
-	echo "Decompressing image ..."
-	xz --decompress --keep "$IMG_FILENAME".xz
-
-	mount_partition "$BOOT_DIR" 1
-
-	echo "Enabling serial boot messages on $BOOT_DIR" 
-	enable_serial_boot_messages "$BOOT_DIR"
-	
-	echo "Enabling ssh on $BOOT_DIR" 
-	enable_ssh "$BOOT_DIR"
-
-	echo "Enabling usb gadget on $BOOT_DIR" 
-	enable_gadget "$BOOT_DIR"
-	sync
-	sudo umount "$BOOT_DIR"
-
-	mount_partition "$ROOT_DIR" 2
-
-	echo "Adding user to $ROOT_DIR"
-	add_user "$ROOT_DIR"
-
-	echo "Setting gadget ip address in dhcpcd.conf"
-	set_gadget_ip_address "$ROOT_DIR"
-
-	echo "Setting ssh ports in sshd_config"
 	set_ssh_ports "$ROOT_DIR"
 
 	# Check each mount point
@@ -574,33 +512,24 @@ get_sdcard()
 		echo "Please insert the sdcard to be flashed"
 		wait_for_enter
 		lsblk
+		echo "Enter the full path of the sdcard device (eg. /dev/sxx)"
+		read device
+		if ! echo "$device" | grep -q "/dev/"  ; then
+			echo "the full path must contain /dev/"
+			exit 1
+		fi
+		disk_size=`lsblk -b --output SIZE -n -d $device`
+		disk_size=$((disk_size/1024/1024))
+		echo "Disk size is $disk_size MB"
 
-		while true; do
-			echo "Enter the full path of the sdcard device (eg. /dev/sxx)"
-			read device
-			if ! echo "$device" | grep -q "/dev/"  ; then
-				echo "the full path must contain /dev/"
-				continue
+		if ! [ $FORCE -eq 1 ] ; then
+			if [ $disk_size -gt 65000  ]; then
+				echo "This disk is larger than a typical sd card"
+				echo "You don't want to dd to your hard drive!"
+				echo "Please run again with FORCE"
+				exit 2
 			fi
-			disk_size=`lsblk -b --output SIZE -n -d $device`
-			disk_size=$((disk_size/1024/1024))
-			echo "Disk size is $disk_size MB"
-
-			if ! [ $FORCE -eq 1 ] ; then
-				#if [ $disk_size -gt 65000  ]; then
-				if [ $disk_size -gt 5000  ]; then
-					echo "This disk is larger than a typical sd card"
-					echo "You don't want to dd to your hard drive!"
-					if ! get_response "Continue anyway?" ; then
-						echo "You can run again with FORCE"
-						continue
-					else
-						echo "Continuing with $device"
-						break
-					fi
-				fi
-			fi
-		done
+		fi
 		#Unmount all partitions
 		set +e
 		for i in {1..10}
@@ -612,27 +541,8 @@ get_sdcard()
 		echo "---------- In test mode  ----------"
 	fi
 }
-DEBUG_FN()
-{
-
-	get_sdcard
-	exit 2
-
-
-	while true; do
-		read -p "enter number " num
-		if [[ num != 10 ]]; then
-			echo "wrong number. "
-			if  ! get_response "Continue ?" ; then
-				exit 1
-			fi
-		fi
-	done
-	exit 2
-}
 ###################
 #Script execution starts here
-
 set -o functrace	#enables single stepping inside functions
 set -e
 
@@ -645,9 +555,7 @@ display_command_line_options
 unset SINGLE	#Set START_SINGLE_STEP to a value where you want to start single stepping
 parse_command_line_options $@
 
-IMG_FILENAME=pi0w_os/2023-12-05-raspios-bullseye-armhf-lite.img
-create_custom_image
-get_sdcard
+customize_image
 
 sudo dd if="$IMG_FILENAME" of=$device bs=1M status=progress status=progress conv=nocreat,fdatasync
 
