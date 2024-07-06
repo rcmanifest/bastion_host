@@ -7,3 +7,10 @@ Added static ethernet and ip address for usb gadget.  This results in the same d
 Create connect.sh that configures the usb-ethernet gadget on the host.
 
 Tested on Ubuntu 20.04.6 LTS
+
+***June 29 2024***
+Tasks:
+- Review iptables rules for pc-based wifi to ethernet router.
+- Test ethernet to ethernet rbpi router.
+
+
