@@ -18,10 +18,12 @@ single_step()
 {
 	#Called from trap DEBUG
 	{ set +x; } &> /dev/null
+	set +u
 	if [ "$START_SINGLE_STEP" ]; then
 		echo "Press enter to continue"
 		read
 	fi
+	set -u
 	set -x
 }
 mypause()
@@ -490,6 +492,8 @@ create_custom_image()
 	sync
 	sudo umount "$BOOT_DIR"
 
+	#return 0
+
 	mount_partition "$ROOT_DIR" 2
 
 	echo "Adding user to $ROOT_DIR"
@@ -645,7 +649,10 @@ display_command_line_options
 unset SINGLE	#Set START_SINGLE_STEP to a value where you want to start single stepping
 parse_command_line_options $@
 
+START_SINGLE_STEP=1
 IMG_FILENAME=pi0w_os/2023-12-05-raspios-bullseye-armhf-lite.img
+#IMG_FILENAME=~/Downloads/2024-07-04-raspios-bullseye-armhf-lite.img
+
 create_custom_image
 get_sdcard
 

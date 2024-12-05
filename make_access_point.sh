@@ -641,6 +641,8 @@ cscope -b -R *.sh
 TESTING=false
 unset START_SINGLE_STEP
 
+START_SINGLE_STEP=1
+
 display_command_line_options
 unset SINGLE	#Set START_SINGLE_STEP to a value where you want to start single stepping
 parse_command_line_options $@
